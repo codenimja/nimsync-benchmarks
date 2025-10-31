@@ -1,0 +1,20 @@
+name: Benchmark
+on:
+  push: { branches: [main] }
+  schedule: [ cron: '0 3 * * *' ]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: iffy/setup-nim@v2
+        with: { nim-version: '2.2.4' }
+      - run: make report
+      - uses: actions/upload-artifact@v3
+        with: { path: results/latest.md }
+      - run: |
+          git config user.name "github-actions"
+          git add results/
+          git commit -m "bench: $(date +%Y-%m-%d)" || exit 0
+          git push

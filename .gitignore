@@ -1,0 +1,12 @@
+# Auto-generated output
+results/latest.md
+results/badge.json
+results/history/*.md
+results/data/
+
+# Old runs (keep folder, ignore contents)
+archive/**/*
+
+# Logs
+*.log
+logs/
