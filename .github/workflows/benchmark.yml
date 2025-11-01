@@ -1,20 +1,81 @@
-name: Benchmark
+name: Continuous Benchmarks
+
 on:
-  push: { branches: [main] }
-  schedule: [ cron: '0 3 * * *' ]
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  schedule:
+    - cron: '0 3 * * *'  # Daily at 3 AM UTC
+  workflow_dispatch:  # Manual trigger
 
 jobs:
-  run:
+  benchmark:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: iffy/setup-nim@v2
-        with: { nim-version: '2.2.4' }
-      - run: make report
-      - uses: actions/upload-artifact@v3
-        with: { path: results/latest.md }
-      - run: |
-          git config user.name "github-actions"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for trend analysis
+      
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.2.4'
+      
+      - name: Install nimsync
+        run: |
+          nimble install -y https://github.com/codenimja/nimsync
+      
+      - name: System info
+        run: |
+          echo "## Hardware Info" >> $GITHUB_STEP_SUMMARY
+          echo "- CPU: $(lscpu | grep 'Model name' | cut -d':' -f2 | xargs)" >> $GITHUB_STEP_SUMMARY
+          echo "- Cores: $(nproc)" >> $GITHUB_STEP_SUMMARY
+          echo "- RAM: $(free -h | grep Mem | awk '{print $2}')" >> $GITHUB_STEP_SUMMARY
+          echo "- Kernel: $(uname -r)" >> $GITHUB_STEP_SUMMARY
+          echo "- Nim: $(nim --version | head -1)" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Run benchmarks
+        run: make report
+        continue-on-error: false
+      
+      - name: Check for regressions
+        run: |
+          if [ -f scripts/check_regression.sh ]; then
+            ./scripts/check_regression.sh || echo "⚠️ Performance regression detected"
+          fi
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: |
+            results/latest.md
+            results/latest.txt
+            results/badge.json
+          retention-days: 90
+      
+      - name: Commit results
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add results/
-          git commit -m "bench: $(date +%Y-%m-%d)" || exit 0
+          git commit -m "benchmark: automated run $(date +%Y-%m-%d_%H%M%S)" || exit 0
           git push
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('results/latest.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## Benchmark Results\n\n' + results
+            });
